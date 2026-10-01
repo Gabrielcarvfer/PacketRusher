@@ -22,6 +22,11 @@ import (
 	"time"
 )
 
+// OnPduSessionReady, when set, is called once a PDU session is configured on both the UE and
+// the gNodeB, before any tunnel is created. It is used by nr-bridge to hand the user plane over
+// to an external RAN (an ns-3 simulation).
+var OnPduSessionReady func(ue *context.UEContext, pduSession *context.UEPDUSession)
+
 func SetupGtpInterface(ue *context.UEContext, msg gnbContext.UEMessage) {
 	gnbPduSession := msg.GNBPduSessions[0]
 	pduSession, err := ue.GetPduSession(uint8(gnbPduSession.GetPduSessionId()))
@@ -30,6 +35,10 @@ func SetupGtpInterface(ue *context.UEContext, msg gnbContext.UEMessage) {
 		return
 	}
 	pduSession.GnbPduSession = gnbPduSession
+
+	if OnPduSessionReady != nil {
+		OnPduSessionReady(ue, pduSession)
+	}
 
 	if ue.TunnelMode == config.TunnelDisabled {
 		log.Info(fmt.Sprintf("[UE][GTP] Interface for UE %s has not been created. Tunnel has been disabled.", ue.GetMsin()))
