@@ -18,7 +18,8 @@
 //	bridge -> ns-3: {"msg":"gnb_ready","gnb":1} | {"msg":"gnb_failed","gnb":1,"reason":"..."}
 //	ns-3 -> bridge: {"msg":"ue_attach","gnb":1,"rnti":1,"imsi":"999700000000001"}
 //	bridge -> ns-3: {"msg":"ue_ready","gnb":1,"rnti":1,"imsi":"...","ue_ip":"10.45.0.2",
-//	                 "upf":"10.100.0.10","ul_teid":1,"dl_teid":1,"qfi":1,"five_qi":9}
+//	                 "upf":"10.100.0.10","ul_teid":1,"dl_teid":1,"qfi":1,"five_qi":9,
+//	                 "dns":"8.8.8.8,8.8.4.4"}
 //	              | {"msg":"ue_failed","gnb":1,"rnti":1,"imsi":"...","reason":"..."}
 //	ns-3 -> bridge: {"msg":"ue_release","gnb":1,"rnti":1}
 package main
@@ -30,6 +31,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,6 +98,7 @@ type Message struct {
 	DlTeid uint32 `json:"dl_teid,omitempty"`
 	Qfi    int64  `json:"qfi,omitempty"`
 	FiveQi int64  `json:"five_qi,omitempty"`
+	Dns    string `json:"dns,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -397,6 +400,7 @@ func (b *Bridge) onPduSessionReady(ueCtx *ueContext.UEContext, pdu *ueContext.UE
 		DlTeid: g.GetTeidDownlink(),
 		Qfi:    g.GetQosId(),
 		FiveQi: g.GetFiveQI(),
+		Dns:    strings.Join(pdu.GetDnsServers(), ","),
 	}
 	log.Info("[BRIDGE] UE ", u.imsi, " ready: ", msg.UeIp, " UPF ", msg.Upf, " TEIDs ", msg.UlTeid, "/",
 		msg.DlTeid)

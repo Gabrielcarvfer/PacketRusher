@@ -80,6 +80,7 @@ type UEPDUSession struct {
 	Id            uint8
 	GnbPduSession *context.GnbPDUSession
 	ueIP          string
+	dnsServers    []string
 	ueGnbIP       netip.Addr
 	tun           netlink.Link
 	rule          *netlink.Rule
@@ -341,6 +342,14 @@ func (pduSession *UEPDUSession) SetIp(ip [12]uint8) {
 
 func (pduSession *UEPDUSession) GetIp() string {
 	return pduSession.ueIP
+}
+
+func (pduSession *UEPDUSession) SetDnsServers(dnsServers []string) {
+	pduSession.dnsServers = dnsServers
+}
+
+func (pduSession *UEPDUSession) GetDnsServers() []string {
+	return pduSession.dnsServers
 }
 
 func (pduSession *UEPDUSession) SetGnbIp(ip netip.Addr) {

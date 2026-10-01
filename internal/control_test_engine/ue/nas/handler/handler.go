@@ -12,10 +12,12 @@ import (
 	"my5G-RANTester/internal/control_test_engine/ue/nas/message/nas_control/mm_5gs"
 	"my5G-RANTester/internal/control_test_engine/ue/nas/message/sender"
 	"my5G-RANTester/internal/control_test_engine/ue/nas/trigger"
+	"net"
 	"reflect"
 	"time"
 
 	"github.com/free5gc/nas"
+	"github.com/free5gc/nas/nasConvert"
 	"github.com/free5gc/nas/nasMessage"
 	"github.com/free5gc/openapi/models"
 	log "github.com/sirupsen/logrus"
@@ -376,6 +378,20 @@ func HandlerDlNasTransportPduaccept(ue *context.UEContext, message *nas.Message)
 		// get UE IP
 		UeIp := pduSessionEstablishmentAccept.GetPDUAddressInformation()
 		pduSession.SetIp(UeIp)
+
+		// get the DNS servers
+		if epco := pduSessionEstablishmentAccept.ExtendedProtocolConfigurationOptions; epco != nil {
+			pco := nasConvert.NewProtocolConfigurationOptions()
+			if err := pco.UnMarshal(epco.GetExtendedProtocolConfigurationOptionsContents()); err == nil {
+				var dnsServers []string
+				for _, unit := range pco.ProtocolOrContainerList {
+					if unit.ProtocolOrContainerID == nasMessage.DNSServerIPv4AddressDL && len(unit.Contents) == 4 {
+						dnsServers = append(dnsServers, net.IP(unit.Contents).String())
+					}
+				}
+				pduSession.SetDnsServers(dnsServers)
+			}
+		}
 
 		// get QoS Rules
 		QosRule := pduSessionEstablishmentAccept.AuthorizedQosRules.GetQosRule()
