@@ -112,6 +112,7 @@ type simUe struct {
 	imsi     string
 	commands chan procedures.UeTesterMessage
 	ready    bool
+	done     chan struct{} // closed when the UE terminates
 }
 
 // Bridge keeps the state of the simulated gNBs and UEs.
@@ -308,15 +309,25 @@ func (b *Bridge) ueAttach(msg Message) {
 	}
 	b.mu.Lock()
 	gnb := b.gnbs[msg.Gnb]
-	_, attached := b.byMsin[msin]
+	previous := b.byMsin[msin]
 	b.mu.Unlock()
 	if gnb == nil {
 		fail(fmt.Sprintf("gNB %d is not connected", msg.Gnb))
 		return
 	}
-	if attached {
-		fail("UE already attached")
-		return
+	if previous != nil {
+		// The UE registers again, e.g., after having been served by another network. As a real
+		// UE that left the coverage of its previous network, it does not deregister there: its
+		// previous context is dropped, and the new registration replaces it in the core
+		// networks. A deregistration would race with the new registration.
+		log.Info("[BRIDGE] UE ", msg.Imsi, " registers again: dropping its previous context")
+		b.forget(previous)
+		previous.commands <- procedures.UeTesterMessage{Type: procedures.Kill}
+		select {
+		case <-previous.done:
+		case <-time.After(3 * time.Second):
+			log.Warn("[BRIDGE] UE ", msg.Imsi, ": previous context not released in time")
+		}
 	}
 	sub := b.cfg.Subscriber
 	if s, ok := b.cfg.Subscribers[msg.Imsi]; ok {
@@ -341,7 +352,7 @@ func (b *Bridge) ueAttach(msg Message) {
 	}
 
 	commands := make(chan procedures.UeTesterMessage, 4)
-	u := &simUe{key: key, imsi: msg.Imsi, commands: commands}
+	u := &simUe{key: key, imsi: msg.Imsi, commands: commands, done: make(chan struct{})}
 	b.mu.Lock()
 	b.nextId++
 	id := b.nextId
@@ -358,6 +369,7 @@ func (b *Bridge) ueAttach(msg Message) {
 // followUe requests the PDU session once the UE is registered, and reports the failures. It
 // consumes the UE state changes until the UE terminates, as the UE blocks on reporting them.
 func (b *Bridge) followUe(u *simUe, states chan scenario.ScenarioMessage) {
+	defer close(u.done)
 	registered := false
 	timeout := time.After(10 * time.Second)
 	isReady := func() bool {
