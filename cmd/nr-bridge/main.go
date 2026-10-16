@@ -80,6 +80,9 @@ type Config struct {
 	Sd          string                `json:"sd"`
 	// MncLength maps a MCC to the length of its MNCs, to split the IMSIs (default 2).
 	MncLength map[string]int `json:"mnc_length"`
+	// Sepp, if set, makes the bridge the SEPP and the home network (AUSF, UDM) of the UEs of
+	// a core network of ns-3, for the visited networks that roam with it.
+	Sepp *SeppConfig `json:"sepp"`
 }
 
 // Message is a control message exchanged with ns-3.
@@ -128,6 +131,7 @@ type Bridge struct {
 	byMsin map[string]*simUe
 	nextId int
 	wg     sync.WaitGroup
+	home   *homeNetwork // the home network behind the SEPP, if any
 }
 
 func main() {
@@ -149,6 +153,13 @@ func main() {
 		log.Fatal("[BRIDGE] Invalid configuration: ", err)
 	}
 	gtpService.OnPduSessionReady = b.onPduSessionReady
+	if b.cfg.Sepp != nil {
+		b.home = b.startSepp(*b.cfg.Sepp)
+		// the core network of ns-3 deletes the session of the UE in its networks
+		b.home.onUeAmf = func(supi string) {
+			b.send(Message{Msg: "home_registration", Gnb: 0, Imsi: strings.TrimPrefix(supi, "imsi-")})
+		}
+	}
 
 	addr, err := net.ResolveUDPAddr("udp", b.cfg.Listen)
 	if err != nil {
@@ -181,6 +192,11 @@ func main() {
 			go b.ueAttach(msg)
 		case "ue_release":
 			go b.ueRelease(msg)
+		case "home_setup":
+			// the core network of ns-3 behind the SEPP, reached at gNB 0
+			log.Info("[BRIDGE] Home network of the UEs of ns-3: PLMN ", msg.Mcc, "/", msg.Mnc)
+		case "home_cancel":
+			go b.homeCancel(msg)
 		default:
 			log.Warn("[BRIDGE] Ignoring unknown message ", msg.Msg)
 		}
@@ -449,6 +465,25 @@ func (b *Bridge) forget(u *simUe) {
 		if v == u {
 			delete(b.byMsin, msin)
 		}
+	}
+}
+
+// homeCancel handles the attachment of a UE in a core network of ns-3, its home network: the
+// visited network that served it deregisters it, and its context in the bridge is dropped.
+func (b *Bridge) homeCancel(msg Message) {
+	if b.home != nil {
+		b.home.deregister("imsi-" + msg.Imsi)
+	}
+	_, _, msin, err := b.splitImsi(msg.Imsi)
+	if err != nil {
+		return
+	}
+	b.mu.Lock()
+	u := b.byMsin[msin]
+	b.mu.Unlock()
+	if u != nil {
+		b.forget(u)
+		u.commands <- procedures.UeTesterMessage{Type: procedures.Kill}
 	}
 }
 
