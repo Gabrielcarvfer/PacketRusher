@@ -120,8 +120,9 @@ type Bridge struct {
 	conn *net.UDPConn
 
 	mu     sync.Mutex
-	peer   *net.UDPAddr // address of ns-3, learnt from the first message
+	peers  map[uint32]*net.UDPAddr // control address of each gNB in ns-3, from its messages
 	gnbs   map[uint32]*gnbContext.GNBContext
+	setups map[uint32]bool // gNBs whose NG setup is in progress
 	ues    map[ueKey]*simUe
 	byMsin map[string]*simUe
 	nextId int
@@ -137,7 +138,9 @@ func main() {
 		log.Fatal("[BRIDGE] Cannot read configuration: ", err)
 	}
 	b := &Bridge{
+		peers:  make(map[uint32]*net.UDPAddr),
 		gnbs:   make(map[uint32]*gnbContext.GNBContext),
+		setups: make(map[uint32]bool),
 		ues:    make(map[ueKey]*simUe),
 		byMsin: make(map[string]*simUe),
 	}
@@ -168,7 +171,7 @@ func main() {
 			continue
 		}
 		b.mu.Lock()
-		b.peer = from
+		b.peers[msg.Gnb] = from
 		b.mu.Unlock()
 		switch msg.Msg {
 		case "gnb_setup":
@@ -186,8 +189,12 @@ func main() {
 func (b *Bridge) send(msg Message) {
 	data, _ := json.Marshal(msg)
 	b.mu.Lock()
-	peer := b.peer
+	peer := b.peers[msg.Gnb]
 	b.mu.Unlock()
+	if peer == nil {
+		log.Error("[BRIDGE] No address for gNB ", msg.Gnb)
+		return
+	}
 	if _, err := b.conn.WriteToUDP(data, peer); err != nil {
 		log.Error("[BRIDGE] Cannot send to ns-3: ", err)
 	}
@@ -209,11 +216,24 @@ func (b *Bridge) gnbSetup(msg Message) {
 	}
 	b.mu.Lock()
 	_, exists := b.gnbs[msg.Gnb]
+	inProgress := b.setups[msg.Gnb]
+	if !exists && !inProgress {
+		b.setups[msg.Gnb] = true
+	}
 	b.mu.Unlock()
 	if exists {
 		b.send(Message{Msg: "gnb_ready", Gnb: msg.Gnb})
 		return
 	}
+	if inProgress {
+		// a retransmission of gnb_setup: the setup in progress answers it
+		return
+	}
+	defer func() {
+		b.mu.Lock()
+		delete(b.setups, msg.Gnb)
+		b.mu.Unlock()
+	}()
 	core := b.findCore(msg.Mcc, msg.Mnc)
 	if core == nil {
 		fail(fmt.Sprintf("no core configured for PLMN %s/%s", msg.Mcc, msg.Mnc))
