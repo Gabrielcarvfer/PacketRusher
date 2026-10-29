@@ -102,6 +102,14 @@ var nfServices = map[string][]string{
 	"UDM":  {"nudm-sdm", "nudm-uecm", "nudm-ueau"},
 }
 
+// apiVersions are the major versions of the APIs of the services, as in their URIs.
+var apiVersions = map[string]string{
+	"nausf-auth": "v1",
+	"nudm-sdm":   "v2",
+	"nudm-uecm":  "v1",
+	"nudm-ueau":  "v1",
+}
+
 // startSepp starts the N32-c and N32-f servers of the SEPP.
 func (b *Bridge) startSepp(cfg SeppConfig) *homeNetwork {
 	if cfg.FiveQi == 0 {
@@ -310,7 +318,7 @@ func (h *homeNetwork) discovery(w http.ResponseWriter, r *http.Request) {
 			nfServiceList = append(nfServiceList, map[string]any{
 				"serviceInstanceId": h.nfIds[nfType] + "-" + name,
 				"serviceName":       name,
-				"versions":          []any{map[string]string{"apiVersionInUri": "v1", "apiFullVersion": "1.0.0"}},
+				"versions":          []any{map[string]string{"apiVersionInUri": apiVersions[name], "apiFullVersion": apiVersions[name][1:] + ".0.0"}},
 				"scheme":            "http",
 				"nfServiceStatus":   "REGISTERED",
 				"fqdn":              fqdn,
